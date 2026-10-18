@@ -1,0 +1,11 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Geopolitics.Application/Geopolitics.Application.csproj" />
+    <Project Path="src/Geopolitics.Domain/Geopolitics.Domain.csproj" />
+    <Project Path="src/Geopolitics.Infrastructure/Geopolitics.Infrastructure.csproj" />
+    <Project Path="src/Geopolitics.Web/Geopolitics.Web.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Geopolitics.Tests/Geopolitics.Tests.csproj" />
+  </Folder>
+</Solution>
