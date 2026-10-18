@@ -1,6 +1,8 @@
 # Geopolitics
 
 A single-player, Risk-style web game built for the UCT INF4001N 2027 Honours entrance exam.
+
+**Live site:** https://geopolitics-ken5.onrender.com (health check: `/health`)
 You pick a country, 9 others are drawn at random and played by NPCs, and you win by conquering all 10.
 
 ## Stack
@@ -47,7 +49,7 @@ Secrets are never committed. In production they are supplied as environment vari
 
 ## Submission checklist
 
-- [ ] Deployed URL
+- [x] Deployed URL (Render, Frankfurt; move to a paid instance before submission so it doesn't sleep)
 - [ ] Demo app username and password
 - [ ] Examiners added as read-only Atlas project members: ammarcanani@gmail.com, mc.tanner@uct.ac.za, ridewaan.hanslo@uct.ac.za
 - [ ] Source zip
