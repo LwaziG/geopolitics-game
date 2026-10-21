@@ -9,13 +9,16 @@ The brief leaves some rules open. These are the interpretations the engine imple
 | Dice count | `min(attacker − 1, defender)`, no cap at 3 | 10 vs 2 → 2 dice; 3 vs 5 → 2 dice; 2 vs 5 → 1 die |
 | Dice pairing | In roll order (die 1 vs die 1), not sorted | "Soldier 1 vs. Soldier 1" |
 | Ties | Neither soldier dies | p. 3 |
-| Conquest bonus | `max(2, floor(soldierValue / 2))`, where soldier value is the population-based starting value; placed on the conquered country | India 9 → 4; Vatican City 1 → 2 |
+| Conquest bonus | `max(2, floor(soldierValue / 2))` new soldiers, where soldier value is the population-based starting value; placed on the conquered country | India 9 → 4; Vatican City 1 → 2 |
 | Post-conquest move | Player may move extra soldiers from the attacking country, leaving at least 1 behind | p. 3 |
 | Attacks per turn | One. Conquering ends the attack but not the turn; stopping an attack ends the turn | p. 2, p. 4 |
 | Transfers | Allowed between owned countries when no attack is in progress; each country keeps at least 1 soldier | p. 2 |
 | Reinforcements | From round 2: 2 soldiers per country owned, at the start of the turn, allocated freely | p. 4 |
 | Round | Complete when every non-eliminated player has taken one turn; tracked explicitly | p. 4 |
+| Failed attack | When the attacker is left with 1 soldier the attack ends but the turn does not; the player may still transfer before ending the turn | p. 4 only says stopping ends the turn |
+| Reinforcement placement | All reinforcements must be placed before attacking or transferring | Decision (2026-10-19) |
 | Elimination | Player with no countries is skipped for the rest of the game | p. 4 |
+| Human eliminated | The game ends immediately as a loss; remaining NPC turns are not simulated | Decision (2026-10-19) |
 | Win | One player owns all 10 countries | p. 4 |
 
 ## Test cases taken from the brief
