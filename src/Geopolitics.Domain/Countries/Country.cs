@@ -43,4 +43,17 @@ public sealed class Country
         ArgumentOutOfRangeException.ThrowIfGreaterThan(count, Soldiers);
         Soldiers -= count;
     }
+
+    /// <summary>Hands a defeated (empty) country to its conqueror with the conquest bonus.</summary>
+    internal void Capture(Guid newOwnerId, int bonusSoldiers)
+    {
+        if (Soldiers != 0)
+        {
+            throw new InvalidOperationException($"{Name} still has soldiers and cannot be captured.");
+        }
+        ArgumentOutOfRangeException.ThrowIfLessThan(bonusSoldiers, 1);
+
+        OwnerId = newOwnerId;
+        Soldiers = bonusSoldiers;
+    }
 }

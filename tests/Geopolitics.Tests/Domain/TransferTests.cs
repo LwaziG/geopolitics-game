@@ -3,8 +3,8 @@ using Geopolitics.Tests.TestDoubles;
 
 namespace Geopolitics.Tests.Domain;
 
-// Each player owns one country until conquest exists (Thursday), so successful transfers
-// are covered in the conquest tests. These cover every rejection path.
+// Every player starts with one country, so successful transfers are covered in ConquestTests.
+// These cover the rejections that apply from the first turn.
 public class TransferTests
 {
     [Fact]

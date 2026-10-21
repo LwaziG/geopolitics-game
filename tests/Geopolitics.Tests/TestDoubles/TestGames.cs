@@ -26,6 +26,37 @@ public static class TestGames
     public static Game Create(int seed = 1) =>
         Game.Create(Guid.NewGuid(), OwnerUserId, SouthAfrica, Opponents, new Random(seed));
 
+    /// <summary>
+    /// Ends turns until the player named <paramref name="playerName"/> is up. Players passed over put
+    /// any reinforcements on their first country.
+    /// </summary>
+    public static Guid PassUntil(Game game, string playerName)
+    {
+        for (var i = 0; i <= Game.CountriesPerGame && game.CurrentPlayer.Name != playerName; i++)
+        {
+            PassTurn(game);
+        }
+        Assert.Equal(playerName, game.CurrentPlayer.Name);
+        return game.CurrentPlayer.Id;
+    }
+
+    /// <summary>Places reinforcements (if any) on the current player's first country and ends their turn.</summary>
+    public static void PassTurn(Game game)
+    {
+        var player = game.CurrentPlayer.Id;
+        PlaceAllOn(game, game.CountriesOwnedBy(player)[0].Code);
+        game.EndTurn(player);
+    }
+
+    /// <summary>Places all pending reinforcements on one country the current player owns.</summary>
+    public static void PlaceAllOn(Game game, string code)
+    {
+        if (game.Phase == TurnPhase.Reinforce)
+        {
+            game.PlaceReinforcements(game.CurrentPlayer.Id, new Dictionary<string, int> { [code] = game.PendingReinforcements });
+        }
+    }
+
     /// <summary>Ends every player's turn in round 1, leaving the first player of round 2 to move.</summary>
     public static Game CreateInRoundTwo(int seed = 1)
     {

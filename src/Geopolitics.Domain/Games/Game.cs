@@ -1,3 +1,4 @@
+using Geopolitics.Domain.Battles;
 using Geopolitics.Domain.Countries;
 using Geopolitics.Domain.Players;
 
@@ -36,6 +37,9 @@ public sealed class Game
 
     public GameStatus Status { get; private set; }
 
+    /// <summary>Set when the game is won; null while in progress or when the human was eliminated.</summary>
+    public Guid? WinnerId { get; private set; }
+
     /// <summary>1-based. A round is complete once every remaining player has taken one turn.</summary>
     public int Round { get; private set; }
 
@@ -43,6 +47,12 @@ public sealed class Game
 
     /// <summary>Soldiers the current player still has to place this turn.</summary>
     public int PendingReinforcements { get; private set; }
+
+    /// <summary>One attack per turn; true once the current player has started theirs.</summary>
+    public bool HasAttackedThisTurn { get; private set; }
+
+    /// <summary>The attack in progress (<see cref="TurnPhase.AttackInProgress"/>) or just won (<see cref="TurnPhase.PostConquest"/>).</summary>
+    public AttackState? ActiveAttack { get; private set; }
 
     public IReadOnlyList<Country> Countries => _countries;
 
@@ -122,7 +132,10 @@ public sealed class Game
     {
         ArgumentNullException.ThrowIfNull(allocation);
         EnsureTurnOf(playerId);
-        EnsurePhase(TurnPhase.Reinforce, "You have no reinforcements to place.");
+        if (Phase != TurnPhase.Reinforce)
+        {
+            throw new GameRuleException("You have no reinforcements to place.");
+        }
 
         if (allocation.Count == 0 || allocation.Values.Any(n => n < 1))
         {
@@ -154,12 +167,7 @@ public sealed class Game
     public void Transfer(Guid playerId, string fromCode, string toCode, int count)
     {
         EnsureTurnOf(playerId);
-        EnsurePhase(TurnPhase.Action, Phase switch
-        {
-            TurnPhase.Reinforce => "Place your reinforcements before transferring soldiers.",
-            TurnPhase.AttackInProgress => "You cannot transfer soldiers while an attack is in progress.",
-            _ => "Finish moving soldiers into the conquered country first.",
-        });
+        EnsureActionPhase("transferring soldiers");
 
         var from = GetCountry(fromCode);
         var to = GetCountry(toCode);
@@ -171,34 +179,125 @@ public sealed class Game
         {
             throw new GameRuleException("You can only transfer between countries you control.");
         }
-        if (count < 1)
-        {
-            throw new GameRuleException("Transfer at least one soldier.");
-        }
-        if (from.Soldiers - count < 1)
-        {
-            throw new GameRuleException($"{from.Name} must keep at least 1 soldier; you can move up to {from.Soldiers - 1}.");
-        }
+        EnsureCanMove(from, count);
 
         from.RemoveSoldiers(count);
         to.AddSoldiers(count);
         Record(new SoldiersTransferred(Id, playerId, from.Code, to.Code, count));
     }
 
+    /// <summary>Begins this turn's single attack from an owned country on any country the player does not own.</summary>
+    public void StartAttack(Guid playerId, string fromCode, string toCode)
+    {
+        EnsureTurnOf(playerId);
+        EnsureActionPhase("attacking");
+        if (HasAttackedThisTurn)
+        {
+            throw new GameRuleException("You have already attacked this turn.");
+        }
+
+        var from = GetCountry(fromCode);
+        var to = GetCountry(toCode);
+        if (!from.IsOwnedBy(playerId))
+        {
+            throw new GameRuleException("You can only attack from a country you control.");
+        }
+        if (to.IsOwnedBy(playerId))
+        {
+            throw new GameRuleException("You cannot attack your own country.");
+        }
+        if (from.Soldiers < BattleEngine.MinAttackingSoldiers)
+        {
+            throw new GameRuleException(
+                $"{from.Name} needs at least {BattleEngine.MinAttackingSoldiers} soldiers to attack.");
+        }
+
+        HasAttackedThisTurn = true;
+        ActiveAttack = new AttackState(from.Code, to.Code);
+        Phase = TurnPhase.AttackInProgress;
+        Record(new AttackStarted(Id, playerId, to.OwnerId, from.Code, to.Code));
+    }
+
+    /// <summary>
+    /// Rolls one round of the current attack. The attack ends by itself when the defender has no
+    /// soldiers left (conquest) or the attacker is down to 1 (failed; the turn continues).
+    /// </summary>
+    public BattleRound Roll(Guid playerId, IDiceRoller dice)
+    {
+        ArgumentNullException.ThrowIfNull(dice);
+        EnsureTurnOf(playerId);
+        var (from, to) = EnsureAttackInProgress();
+
+        var round = BattleEngine.Fight(from.Soldiers, to.Soldiers, dice);
+        if (round.AttackerLosses > 0) from.RemoveSoldiers(round.AttackerLosses);
+        if (round.DefenderLosses > 0) to.RemoveSoldiers(round.DefenderLosses);
+        Record(new DiceRolled(
+            Id, playerId, from.Code, to.Code,
+            round.AttackerDice, round.DefenderDice,
+            round.AttackerLosses, round.DefenderLosses,
+            from.Soldiers, to.Soldiers));
+
+        if (to.Soldiers == 0)
+        {
+            Conquer(playerId, from, to);
+        }
+        else if (from.Soldiers < BattleEngine.MinAttackingSoldiers)
+        {
+            Record(new AttackFailed(Id, playerId, from.Code, to.Code));
+            ActiveAttack = null;
+            Phase = TurnPhase.Action;
+        }
+        return round;
+    }
+
+    /// <summary>Calls off the current attack. Both sides keep their remaining soldiers and the turn ends.</summary>
+    public void StopAttack(Guid playerId)
+    {
+        EnsureTurnOf(playerId);
+        var (from, to) = EnsureAttackInProgress();
+
+        Record(new AttackStopped(Id, playerId, from.Code, to.Code));
+        ActiveAttack = null;
+        Phase = TurnPhase.Action;
+        FinishTurn(playerId);
+    }
+
+    /// <summary>
+    /// After a conquest, moves <paramref name="count"/> extra soldiers (0 is allowed) from the
+    /// attacking country into the conquered one, leaving at least 1 behind.
+    /// </summary>
+    public void MoveAfterConquest(Guid playerId, int count)
+    {
+        EnsureTurnOf(playerId);
+        if (Phase != TurnPhase.PostConquest || ActiveAttack is null)
+        {
+            throw new GameRuleException("There is no conquered country to move soldiers into.");
+        }
+
+        var from = GetCountry(ActiveAttack.FromCode);
+        var to = GetCountry(ActiveAttack.ToCode);
+        if (count < 0)
+        {
+            throw new GameRuleException("You cannot move a negative number of soldiers.");
+        }
+        if (count > 0)
+        {
+            EnsureCanMove(from, count);
+            from.RemoveSoldiers(count);
+            to.AddSoldiers(count);
+        }
+
+        Record(new SoldiersMovedIn(Id, playerId, from.Code, to.Code, count));
+        ActiveAttack = null;
+        Phase = TurnPhase.Action;
+    }
+
     /// <summary>Ends the current player's turn and starts the next remaining player's.</summary>
     public void EndTurn(Guid playerId)
     {
         EnsureTurnOf(playerId);
-        EnsurePhase(TurnPhase.Action, Phase switch
-        {
-            TurnPhase.Reinforce => "Place your reinforcements before ending your turn.",
-            TurnPhase.AttackInProgress => "Stop or finish your attack before ending your turn.",
-            _ => "Finish moving soldiers into the conquered country first.",
-        });
-
-        Record(new TurnEnded(Id, playerId));
-        AdvanceToNextPlayer();
-        StartTurn();
+        EnsureActionPhase("ending your turn");
+        FinishTurn(playerId);
     }
 
     /// <summary>Returns the events recorded since the last call and clears them.</summary>
@@ -207,6 +306,52 @@ public sealed class Game
         var events = _pendingEvents.ToList();
         _pendingEvents.Clear();
         return events;
+    }
+
+    private void Conquer(Guid attackerId, Country from, Country to)
+    {
+        var defenderId = to.OwnerId;
+        var bonus = BattleEngine.ConquestBonus(to.SoldierValue);
+        to.Capture(attackerId, bonus);
+        Record(new CountryConquered(Id, attackerId, defenderId, from.Code, to.Code, bonus));
+
+        ActiveAttack = new AttackState(from.Code, to.Code);
+        Phase = TurnPhase.PostConquest;
+
+        if (CountriesOwnedBy(defenderId).Count == 0)
+        {
+            var defender = GetPlayer(defenderId);
+            defender.Eliminate();
+            Record(new PlayerEliminated(Id, defenderId, attackerId));
+
+            if (defender.IsHuman)
+            {
+                EndGame(GameStatus.Lost, winnerId: null);
+                return;
+            }
+        }
+
+        if (CountriesOwnedBy(attackerId).Count == CountriesPerGame)
+        {
+            // Only the human can get here: an NPC sweeping the board would have eliminated the human first.
+            EndGame(GameStatus.Won, attackerId);
+        }
+    }
+
+    private void EndGame(GameStatus status, Guid? winnerId)
+    {
+        Status = status;
+        WinnerId = winnerId;
+        ActiveAttack = null;
+        Phase = TurnPhase.Action;
+        Record(new GameEnded(Id, status, winnerId));
+    }
+
+    private void FinishTurn(Guid playerId)
+    {
+        Record(new TurnEnded(Id, playerId));
+        AdvanceToNextPlayer();
+        StartTurn();
     }
 
     private void AdvanceToNextPlayer()
@@ -232,6 +377,8 @@ public sealed class Game
     private void StartTurn()
     {
         var player = CurrentPlayer;
+        HasAttackedThisTurn = false;
+        ActiveAttack = null;
         if (Round >= Reinforcements.FirstRound)
         {
             PendingReinforcements = Reinforcements.For(CountriesOwnedBy(player.Id).Count);
@@ -257,11 +404,41 @@ public sealed class Game
         }
     }
 
-    private void EnsurePhase(TurnPhase required, string message)
+    private void EnsureActionPhase(string action)
     {
-        if (Phase != required)
+        var problem = Phase switch
         {
-            throw new GameRuleException(message);
+            TurnPhase.Action => null,
+            TurnPhase.Reinforce => $"Place your reinforcements before {action}.",
+            TurnPhase.AttackInProgress => $"Stop or finish your attack before {action}.",
+            TurnPhase.PostConquest => $"Choose how many soldiers to move into the conquered country before {action}.",
+            _ => throw new InvalidOperationException($"Unknown phase {Phase}."),
+        };
+        if (problem is not null)
+        {
+            throw new GameRuleException(problem);
+        }
+    }
+
+    private (Country From, Country To) EnsureAttackInProgress()
+    {
+        if (Phase != TurnPhase.AttackInProgress || ActiveAttack is null)
+        {
+            throw new GameRuleException("There is no attack in progress.");
+        }
+        return (GetCountry(ActiveAttack.FromCode), GetCountry(ActiveAttack.ToCode));
+    }
+
+    private static void EnsureCanMove(Country from, int count)
+    {
+        if (count < 1)
+        {
+            throw new GameRuleException("Move at least one soldier.");
+        }
+        if (from.Soldiers - count < 1)
+        {
+            throw new GameRuleException(
+                $"{from.Name} must keep at least 1 soldier; you can move up to {from.Soldiers - 1}.");
         }
     }
 
