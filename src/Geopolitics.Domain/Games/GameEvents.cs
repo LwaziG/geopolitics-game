@@ -6,8 +6,15 @@ namespace Geopolitics.Domain.Games;
 /// </summary>
 public abstract record GameEvent(Guid GameId);
 
-public sealed record GameStarted(Guid GameId, Guid HumanPlayerId, IReadOnlyList<Guid> TurnOrder)
+/// <summary>The starting board, so the event log alone is enough to replay a game.</summary>
+public sealed record GameStarted(
+    Guid GameId,
+    Guid HumanPlayerId,
+    IReadOnlyList<Guid> TurnOrder,
+    IReadOnlyList<StartingCountry> Countries)
     : GameEvent(GameId);
+
+public sealed record StartingCountry(string Code, string Name, int SoldierValue, Guid OwnerId, int Soldiers);
 
 public sealed record TurnStarted(Guid GameId, Guid PlayerId, int Round, int Reinforcements)
     : GameEvent(GameId);

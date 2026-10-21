@@ -47,6 +47,21 @@ dotnet test
 Secrets are never committed. In production they are supplied as environment variables
 (`Mongo__ConnectionString`, `Llm__ApiKey`).
 
+## Game engine and tests
+
+All game rules live in `Geopolitics.Domain`, which has no dependencies on the database, web framework or AI.
+The `Game` aggregate exposes one method per move (`PlaceReinforcements`, `Transfer`, `StartAttack`, `Roll`,
+`StopAttack`, `MoveAfterConquest`, `EndTurn`). Each checks the turn, phase, ownership and soldier rules before
+changing anything, and records a domain event for every change.
+
+`dotnet test` runs:
+
+- **Rule tests** for every worked example in the brief (dice counts, the `[1,4]` vs `[2,3]` roll, India and
+  Vatican City conquest bonuses, reinforcement amounts) and every rejected move. Dice are scripted so outcomes are exact.
+- **A 500-game simulation** in which every player makes random legal moves until the game is won or lost.
+  After every move it checks that no owned country has fewer than 1 soldier, eliminated players own nothing,
+  the game state is consistent, and replaying the event log rebuilds exactly the same board.
+
 ## Submission checklist
 
 - [x] Deployed URL (Render, Frankfurt; move to a paid instance before submission so it doesn't sleep)

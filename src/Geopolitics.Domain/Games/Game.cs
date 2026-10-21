@@ -111,7 +111,11 @@ public sealed class Game
         random.Shuffle(turnOrder);
 
         var game = new Game(id, ownerUserId, players, countries, [.. turnOrder]);
-        game.Record(new GameStarted(id, game.HumanPlayer.Id, game.TurnOrder));
+        game.Record(new GameStarted(
+            id,
+            game.HumanPlayer.Id,
+            [.. turnOrder],
+            [.. countries.Select(c => new StartingCountry(c.Code, c.Name, c.SoldierValue, c.OwnerId, c.Soldiers))]));
         game.StartTurn();
         return game;
     }
