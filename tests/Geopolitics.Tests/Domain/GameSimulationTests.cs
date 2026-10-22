@@ -59,11 +59,29 @@ public class GameSimulationTests(ITestOutputHelper output)
         }
     }
 
+    /// <summary>
+    /// Value comparison of two snapshots. The element records compare by value, but the lists holding them
+    /// compare by reference, so compare the lists separately and the scalars with the lists blanked out.
+    /// Much faster than Assert.Equivalent, which matters over ~160,000 moves.
+    /// </summary>
+    private static bool SameState(GameState a, GameState b) =>
+        Scalars(a) == Scalars(b)
+        && a.TurnOrder.SequenceEqual(b.TurnOrder)
+        && a.Players.SequenceEqual(b.Players)
+        && a.Countries.SequenceEqual(b.Countries);
+
+    private static GameState Scalars(GameState s) =>
+        s with { TurnOrder = Array.Empty<Guid>(), Players = Array.Empty<PlayerState>(), Countries = Array.Empty<CountryState>() };
+
     private static void AssertInvariants(Game game, EventReplay replay)
     {
         // Every change was recorded: the event log alone rebuilds the same board.
         replay.Apply(game.DequeueEvents());
         replay.AssertMatches(game);
+
+        // Every reachable position can be saved and reloaded without loss.
+        var state = game.ToState();
+        Assert.True(SameState(state, Game.Restore(state).ToState()), "Restoring the saved state changed the game.");
 
         Assert.Equal(Game.CountriesPerGame, game.Countries.Count);
         Assert.All(game.Countries, c =>

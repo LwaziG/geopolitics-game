@@ -19,10 +19,13 @@ public sealed class Game
     private readonly List<GameEvent> _pendingEvents = [];
     private int _turnIndex;
 
-    private Game(Guid id, string ownerUserId, List<Player> players, List<Country> countries, List<Guid> turnOrder)
+    private Game(
+        Guid id, string ownerUserId, DateTimeOffset createdAt,
+        List<Player> players, List<Country> countries, List<Guid> turnOrder)
     {
         Id = id;
         OwnerUserId = ownerUserId;
+        CreatedAt = createdAt;
         _players = players;
         _countries = countries;
         _turnOrder = turnOrder;
@@ -34,6 +37,14 @@ public sealed class Game
 
     /// <summary>The account that started the game and is the only one allowed to play the human's turns.</summary>
     public string OwnerUserId { get; }
+
+    public DateTimeOffset CreatedAt { get; }
+
+    /// <summary>Number of times the game has been saved; 0 until first stored. Used for optimistic concurrency.</summary>
+    public int Version { get; private set; }
+
+    /// <summary>Sequence number of the last event that has been saved; new events continue from here.</summary>
+    public long LastEventSeq { get; private set; }
 
     public GameStatus Status { get; private set; }
 
@@ -76,7 +87,8 @@ public sealed class Game
         string ownerUserId,
         CountryProfile humanCountry,
         IReadOnlyList<CountryProfile> npcCountries,
-        Random random)
+        Random random,
+        DateTimeOffset? createdAt = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(ownerUserId);
         ArgumentNullException.ThrowIfNull(humanCountry);
@@ -110,7 +122,7 @@ public sealed class Game
         var turnOrder = players.Select(p => p.Id).ToArray();
         random.Shuffle(turnOrder);
 
-        var game = new Game(id, ownerUserId, players, countries, [.. turnOrder]);
+        var game = new Game(id, ownerUserId, createdAt ?? DateTimeOffset.UtcNow, players, countries, [.. turnOrder]);
         game.Record(new GameStarted(
             id,
             game.HumanPlayer.Id,
@@ -118,6 +130,67 @@ public sealed class Game
             [.. countries.Select(c => new StartingCountry(c.Code, c.Name, c.SoldierValue, c.OwnerId, c.Soldiers))]));
         game.StartTurn();
         return game;
+    }
+
+    /// <summary>Rebuilds a game from a stored snapshot after checking that it describes a legal position.</summary>
+    /// <exception cref="ArgumentException">The snapshot breaks a game invariant (for example, a corrupted document).</exception>
+    public static Game Restore(GameState state)
+    {
+        GameStateValidator.Validate(state);
+
+        var players = state.Players
+            .Select(p => new Player(p.Id, p.Name, p.Kind, p.UserId, p.IsEliminated))
+            .ToList();
+        var countries = state.Countries
+            .Select(c => new Country(c.Code, c.Name, c.Population, c.SoldierValue, c.OwnerId, c.Soldiers))
+            .ToList();
+
+        return new Game(state.Id, state.OwnerUserId, state.CreatedAt, players, countries, [.. state.TurnOrder])
+        {
+            Status = state.Status,
+            WinnerId = state.WinnerId,
+            Round = state.Round,
+            Phase = state.Phase,
+            _turnIndex = state.TurnOrder.ToList().IndexOf(state.CurrentPlayerId),
+            PendingReinforcements = state.PendingReinforcements,
+            HasAttackedThisTurn = state.HasAttackedThisTurn,
+            ActiveAttack = state.ActiveAttack,
+            Version = state.Version,
+            LastEventSeq = state.LastEventSeq,
+        };
+    }
+
+    /// <summary>A snapshot of the whole game for storage. Pending events are not included; save them separately.</summary>
+    public GameState ToState() => new(
+        Id,
+        OwnerUserId,
+        CreatedAt,
+        Status,
+        WinnerId,
+        Round,
+        Phase,
+        CurrentPlayer.Id,
+        PendingReinforcements,
+        HasAttackedThisTurn,
+        ActiveAttack,
+        [.. _turnOrder],
+        [.. _players.Select(p => new PlayerState(p.Id, p.Name, p.Kind, p.UserId, p.IsEliminated))],
+        [.. _countries.Select(c => new CountryState(c.Code, c.Name, c.Population, c.SoldierValue, c.OwnerId, c.Soldiers))],
+        Version,
+        LastEventSeq);
+
+    /// <summary>
+    /// Called by the repository after a successful save of the first <paramref name="savedEventCount"/>
+    /// pending events: bumps the version, advances the event sequence and drops those events.
+    /// </summary>
+    public void MarkSaved(int savedEventCount)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(savedEventCount);
+        ArgumentOutOfRangeException.ThrowIfGreaterThan(savedEventCount, _pendingEvents.Count);
+
+        Version++;
+        LastEventSeq += savedEventCount;
+        _pendingEvents.RemoveRange(0, savedEventCount);
     }
 
     public Player GetPlayer(Guid playerId) =>
