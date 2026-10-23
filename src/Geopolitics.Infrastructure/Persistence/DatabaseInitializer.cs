@@ -1,16 +1,17 @@
+using Geopolitics.Infrastructure.Countries;
 using Geopolitics.Infrastructure.Persistence.Documents;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
-using MongoDB.Bson;
 using MongoDB.Driver;
 
 namespace Geopolitics.Infrastructure.Persistence;
 
 /// <summary>
-/// Creates the indexes at startup so a fresh database sets itself up. Creating an index that already exists
-/// is a no-op. A failure is logged rather than stopping the app; /health reports the database state.
+/// Sets up the database at startup so a fresh one works without manual steps: creates the indexes (a no-op
+/// when they exist) and brings the country list in line with the seed file. A failure is logged rather than
+/// stopping the app; /health reports the database state.
 /// </summary>
-internal sealed class MongoIndexInitializer(IMongoDatabase database, ILogger<MongoIndexInitializer> logger)
+internal sealed class DatabaseInitializer(IMongoDatabase database, ILogger<DatabaseInitializer> logger)
     : IHostedService
 {
     public async Task StartAsync(CancellationToken cancellationToken)
@@ -18,10 +19,16 @@ internal sealed class MongoIndexInitializer(IMongoDatabase database, ILogger<Mon
         try
         {
             await CreateIndexesAsync(database, cancellationToken);
+            var seeded = await CountrySeeder.SeedAsync(database, CountrySeedFile.Current, cancellationToken);
+            if (seeded.Changed)
+            {
+                logger.LogInformation(
+                    "Country list updated: {Upserted} added or changed, {Deleted} removed.", seeded.Upserted, seeded.Deleted);
+            }
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            logger.LogError(ex, "Could not create MongoDB indexes.");
+            logger.LogError(ex, "Could not initialise the MongoDB database.");
         }
     }
 
@@ -49,10 +56,10 @@ internal sealed class MongoIndexInitializer(IMongoDatabase database, ILogger<Mon
                 new CreateIndexOptions { Name = "game_seq", Unique = true }),
             cancellationToken: cancellationToken);
 
-        var countries = database.GetCollection<BsonDocument>(MongoCollections.Countries);
+        var countries = database.GetCollection<CountryDocument>(MongoCollections.Countries);
         await countries.Indexes.CreateOneAsync(
-            new CreateIndexModel<BsonDocument>(
-                Builders<BsonDocument>.IndexKeys.Ascending("name"),
+            new CreateIndexModel<CountryDocument>(
+                Builders<CountryDocument>.IndexKeys.Ascending(c => c.Name),
                 new CreateIndexOptions { Name = "name" }),
             cancellationToken: cancellationToken);
     }

@@ -1,4 +1,6 @@
+using Geopolitics.Application.Countries;
 using Geopolitics.Application.Games;
+using Geopolitics.Infrastructure.Countries;
 using Geopolitics.Infrastructure.Persistence;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -31,7 +33,8 @@ public static class DependencyInjection
 
         services.TryAddSingleton(TimeProvider.System);
         services.AddSingleton<IGameRepository, MongoGameRepository>();
-        services.AddHostedService<MongoIndexInitializer>();
+        services.AddSingleton<ICountryCatalogue, MongoCountryCatalogue>();
+        services.AddHostedService<DatabaseInitializer>();
 
         services.AddHealthChecks()
             .AddCheck<MongoHealthCheck>("mongodb", tags: ["db"]);

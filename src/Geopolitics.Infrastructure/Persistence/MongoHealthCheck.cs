@@ -4,7 +4,10 @@ using MongoDB.Driver;
 
 namespace Geopolitics.Infrastructure.Persistence;
 
-/// <summary>Reports healthy when the configured database answers a ping.</summary>
+/// <summary>
+/// Healthy when the database answers a ping and the country list is loaded; degraded (still serving) when
+/// the countries are missing, because no new game can be started.
+/// </summary>
 internal sealed class MongoHealthCheck(IMongoDatabase database) : IHealthCheck
 {
     public async Task<HealthCheckResult> CheckHealthAsync(
@@ -14,7 +17,11 @@ internal sealed class MongoHealthCheck(IMongoDatabase database) : IHealthCheck
         {
             await database.RunCommandAsync<BsonDocument>(
                 new BsonDocument("ping", 1), cancellationToken: cancellationToken);
-            return HealthCheckResult.Healthy($"Connected to '{database.DatabaseNamespace.DatabaseName}'.");
+            var countries = await database.GetCollection<BsonDocument>(MongoCollections.Countries)
+                .EstimatedDocumentCountAsync(cancellationToken: cancellationToken);
+
+            var description = $"Connected to '{database.DatabaseNamespace.DatabaseName}' with {countries} countries.";
+            return countries > 0 ? HealthCheckResult.Healthy(description) : HealthCheckResult.Degraded(description);
         }
         catch (Exception ex)
         {
