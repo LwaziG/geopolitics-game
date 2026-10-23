@@ -16,6 +16,17 @@ public sealed class Country
         Soldiers = SoldierValue;
     }
 
+    /// <summary>Rebuilds a country from a validated snapshot.</summary>
+    internal Country(string code, string name, long population, int soldierValue, Guid ownerId, int soldiers)
+    {
+        Code = code;
+        Name = name;
+        Population = population;
+        SoldierValue = soldierValue;
+        OwnerId = ownerId;
+        Soldiers = soldiers;
+    }
+
     public string Code { get; }
 
     public string Name { get; }

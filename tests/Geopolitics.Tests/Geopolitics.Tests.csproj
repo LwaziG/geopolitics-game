@@ -21,6 +21,7 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\Geopolitics.Domain\Geopolitics.Domain.csproj" />
     <ProjectReference Include="..\..\src\Geopolitics.Application\Geopolitics.Application.csproj" />
+    <ProjectReference Include="..\..\src\Geopolitics.Infrastructure\Geopolitics.Infrastructure.csproj" />
   </ItemGroup>
 
 </Project>

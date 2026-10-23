@@ -24,7 +24,10 @@ src/
   Geopolitics.Infrastructure/  MongoDB repositories, LLM client, population seed data
   Geopolitics.Web/             MVC controllers, views, SignalR hub, authentication
 tests/
-  Geopolitics.Tests/           Engine tests with a scripted dice roller
+  Geopolitics.Tests/           Engine, mapping and seed-data tests (no database needed)
+  Geopolitics.IntegrationTests/ Repository and seeding tests against a real MongoDB in a container
+tools/
+  countries/                   One-off script that builds the country list from Worldometers
 docs/
   adr/                         Architecture Decision Records
   rules.md                     How ambiguous rules in the brief are interpreted
@@ -35,7 +38,8 @@ Dependencies point inward: `Web → Application → Domain`, and `Infrastructure
 
 ## Running locally
 
-Requirements: .NET SDK 10.0.x (pinned in `global.json`) and a MongoDB connection string.
+Requirements: .NET SDK 10.0.x (pinned in `global.json`), a MongoDB connection string, and Docker
+(or Rancher Desktop with the dockerd engine) for the integration tests.
 
 ```powershell
 dotnet user-secrets --project src/Geopolitics.Web set "Mongo:ConnectionString" "<atlas-connection-string>"
@@ -60,7 +64,25 @@ changing anything, and records a domain event for every change.
   Vatican City conquest bonuses, reinforcement amounts) and every rejected move. Dice are scripted so outcomes are exact.
 - **A 500-game simulation** in which every player makes random legal moves until the game is won or lost.
   After every move it checks that no owned country has fewer than 1 soldier, eliminated players own nothing,
-  the game state is consistent, and replaying the event log rebuilds exactly the same board.
+  the game state is consistent, replaying the event log rebuilds exactly the same board, and saving and
+  restoring the game changes nothing.
+- **Integration tests** (`tests/Geopolitics.IntegrationTests`) against MongoDB 8.0 started by Testcontainers as a
+  single-node replica set, so transactions behave as on Atlas: save and load, event order and replay, stale and
+  concurrent saves, corrupted documents, indexes, and country seeding.
+
+## Data and persistence
+
+Design, use case diagram and ERD: [docs/plan.md](docs/plan.md#persistence-phase-sat-24--sun-25-oct).
+
+- Each game is one document in `games` plus an append-only log in `gameEvents`, written together in one
+  transaction. A save only succeeds if the stored `version` still matches the one loaded, so a double-click
+  or second tab cannot apply a move twice.
+- On startup the app creates its indexes and loads the country list, so an empty database sets itself up.
+- **Countries:** the 195 sovereign states (193 UN members plus Vatican City and Palestine), with 2026 populations
+  captured from [Worldometers](https://www.worldometers.info/world-population/population-by-country/) on
+  23 October 2026. They are stored in `src/Geopolitics.Infrastructure/Countries/countries.json`; the running app
+  never contacts Worldometers. To refresh, save the page and run
+  `python -I tools/countries/build_countries.py <saved-page.html> <YYYY-MM-DD>`.
 
 ## Submission checklist
 

@@ -9,12 +9,13 @@ public enum PlayerKind
 /// <summary>One of the ten players in a game: the logged-in user or an NPC.</summary>
 public sealed class Player
 {
-    internal Player(Guid id, string name, PlayerKind kind, string? userId)
+    internal Player(Guid id, string name, PlayerKind kind, string? userId, bool isEliminated = false)
     {
         Id = id;
         Name = name;
         Kind = kind;
         UserId = userId;
+        IsEliminated = isEliminated;
     }
 
     public Guid Id { get; }
